@@ -1,0 +1,34 @@
+<div class="container">
+  <h1>Wolne Sale</h1>
+  
+  <div class="form">
+    <div class="field">
+      <label>Dzień tygodnia:</label>
+      <select [(ngModel)]="dzien">
+        <option *ngFor="let d of dni" [value]="d.value">{{ d.label }}</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>Numer lekcji:</label>
+      <select [(ngModel)]="lekcja">
+        <option *ngFor="let l of lekcje" [value]="l.value">{{ l.label }}</option>
+      </select>
+    </div>
+
+    <button (click)="sprawdzWolneSale()" [disabled]="ladowanie">
+      {{ ladowanie ? 'Sprawdzam...' : 'Sprawdź' }}
+    </button>
+  </div>
+
+  <div class="wyniki" *ngIf="wolneSale.length > 0">
+    <h2>Wolne sale:</h2>
+    <ul>
+      <li *ngFor="let sala of wolneSale">{{ sala }}</li>
+    </ul>
+  </div>
+
+  <div class="wyniki" *ngIf="!ladowanie && wolneSale.length === 0 && dzien && lekcja">
+    <p>Brak wolnych sal w tym czasie.</p>
+  </div>
+</div>
