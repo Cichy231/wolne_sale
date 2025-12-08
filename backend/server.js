@@ -9,6 +9,10 @@ app.use(cors({
   credentials: true
 }));
 
+// Cache z danymi wszystkich sal
+let cacheZajec = null;
+let lastUpdate = null;
+
 // Funkcja do pobierania listy sal
 async function getSale() {
   try {
@@ -22,11 +26,7 @@ async function getSale() {
       
       if (href && href.match(/plany\/s\d+\.html$/)) {
         const id = href.match(/s\d+/)[0];
-        sale.push({ 
-          id: id,
-          href: href,
-          nazwa: nazwa || id
-        });
+        sale.push({ id, href, nazwa: nazwa || id });
       }
     });
     
@@ -37,44 +37,88 @@ async function getSale() {
   }
 }
 
-// Funkcja do sprawdzania wolnych sal
-async function sprawdzSale(dzien, lekcja) {
-  const sale = await getSale();
-  const wolneSale = [];
-  
-  for (const sala of sale) {
-    try {
-      const response = await axios.get(`http://planlekcji.lukasiewicz.gorlice.pl/${sala.href}`);
-      const $ = cheerio.load(response.data);
-      
-      const wszystkieTabele = $('table');
-      if (wszystkieTabele.length < 2) continue;
-      
-      const tabela = wszystkieTabele.eq(1);
-      const wiersze = tabela.find('tbody tr');
-      if (wiersze.length === 0) continue;
-      
-      const numerWiersza = parseInt(lekcja) + 1;
+// Funkcja do pobrania planu jednej sali
+async function pobierzPlanSali(sala) {
+  try {
+    const response = await axios.get(`http://planlekcji.lukasiewicz.gorlice.pl/${sala.href}`);
+    const $ = cheerio.load(response.data);
+    
+    const wszystkieTabele = $('table');
+    if (wszystkieTabele.length < 2) return null;
+    
+    const tabela = wszystkieTabele.eq(1);
+    const wiersze = tabela.find('tbody tr');
+    if (wiersze.length === 0) return null;
+    
+    const plan = {};
+    
+    // Iterujemy po wszystkich lekcjach (pomijamy nagłówek)
+    for (let lekcja = 1; lekcja <= 13; lekcja++) {
+      const numerWiersza = lekcja + 1;
       const wiersz = wiersze.eq(numerWiersza);
       if (wiersz.length === 0) continue;
       
       const komorki = wiersz.find('td');
       if (komorki.length === 0) continue;
       
-      const indeksKomorki = parseInt(dzien) + 1;
-      const komorka = komorki.eq(indeksKomorki);
-      if (komorka.length === 0) continue;
+      plan[lekcja] = {};
       
-      const htmlKomorki = komorka.html()?.trim() || '';
-      const tekstKomorki = komorka.text().trim();
-      
-      const czyWolna = htmlKomorki === '&nbsp;' || htmlKomorki === '' || tekstKomorki === '';
-      
-      if (czyWolna) {
-        wolneSale.push(sala.nazwa);
+      // Iterujemy po wszystkich dniach
+      for (let dzien = 1; dzien <= 5; dzien++) {
+        const indeksKomorki = dzien + 1;
+        const komorka = komorki.eq(indeksKomorki);
+        if (komorka.length === 0) continue;
+        
+        const htmlKomorki = komorka.html()?.trim() || '';
+        const tekstKomorki = komorka.text().trim();
+        const czyWolna = htmlKomorki === '&nbsp;' || htmlKomorki === '' || tekstKomorki === '';
+        
+        plan[lekcja][dzien] = czyWolna;
       }
-    } catch (error) {
-      console.error(`Błąd: ${sala.nazwa}`);
+    }
+    
+    return { nazwa: sala.nazwa, plan };
+  } catch (error) {
+    console.error(`Błąd: ${sala.nazwa}`);
+    return null;
+  }
+}
+
+// Funkcja do załadowania wszystkich danych
+async function zaladujWszystkieDane() {
+  console.log('Ładowanie danych ze strony szkoły...');
+  const startTime = Date.now();
+  
+  const sale = await getSale();
+  console.log(`Znaleziono ${sale.length} sal`);
+  
+  const daneSal = [];
+  
+  // Pobieramy plany wszystkich sal równolegle (szybciej)
+  const promises = sale.map(sala => pobierzPlanSali(sala));
+  const wyniki = await Promise.all(promises);
+  
+  for (const wynik of wyniki) {
+    if (wynik) daneSal.push(wynik);
+  }
+  
+  cacheZajec = daneSal;
+  lastUpdate = new Date();
+  
+  const czasLadowania = ((Date.now() - startTime) / 1000).toFixed(2);
+  console.log(`✓ Załadowano dane ${daneSal.length} sal w ${czasLadowania}s`);
+}
+
+// Funkcja do znajdowania wolnych sal z cache
+function znajdzWolneSale(dzien, lekcja) {
+  if (!cacheZajec) return [];
+  
+  const wolneSale = [];
+  
+  for (const sala of cacheZajec) {
+    const czyWolna = sala.plan[lekcja]?.[dzien];
+    if (czyWolna) {
+      wolneSale.push(sala.nazwa);
     }
   }
   
@@ -89,11 +133,24 @@ app.get('/wolne-sale', async (req, res) => {
     return res.status(400).json({ error: 'Podaj dzień i numer lekcji' });
   }
   
-  const wolneSale = await sprawdzSale(dzien, lekcja);
-  res.json({ wolneSale });
+  // Jeśli nie ma cache, załaduj dane
+  if (!cacheZajec) {
+    await zaladujWszystkieDane();
+  }
+  
+  const wolneSale = znajdzWolneSale(parseInt(dzien), parseInt(lekcja));
+  res.json({ wolneSale, lastUpdate });
+});
+
+// Endpoint do odświeżenia danych
+app.get('/odswiez', async (req, res) => {
+  await zaladujWszystkieDane();
+  res.json({ success: true, lastUpdate });
 });
 
 const PORT = 3000;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Serwer działa na http://localhost:${PORT}`);
+  // Automatycznie załaduj dane przy starcie
+  await zaladujWszystkieDane();
 });
