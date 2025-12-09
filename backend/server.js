@@ -9,11 +9,11 @@ app.use(cors({
   credentials: true
 }));
 
-// Cache z danymi wszystkich sal
+
 let cacheZajec = null;
 let lastUpdate = null;
 
-// Funkcja do pobierania listy sal
+
 async function getSale() {
   try {
     const response = await axios.get('http://planlekcji.lukasiewicz.gorlice.pl/lista.html');
@@ -37,7 +37,7 @@ async function getSale() {
   }
 }
 
-// Funkcja do pobrania planu jednej sali
+// Pobranie planu jednej sali
 async function pobierzPlanSali(sala) {
   try {
     const response = await axios.get(`http://planlekcji.lukasiewicz.gorlice.pl/${sala.href}`);
@@ -52,7 +52,7 @@ async function pobierzPlanSali(sala) {
     
     const plan = {};
     
-    // Iterujemy po wszystkich lekcjach (pomijamy nagłówek)
+    // Iteracja po wszystkich lekcjach
     for (let lekcja = 1; lekcja <= 13; lekcja++) {
       const numerWiersza = lekcja + 1;
       const wiersz = wiersze.eq(numerWiersza);
@@ -63,7 +63,7 @@ async function pobierzPlanSali(sala) {
       
       plan[lekcja] = {};
       
-      // Iterujemy po wszystkich dniach
+      // Iteracja po wszystkich dniach
       for (let dzien = 1; dzien <= 5; dzien++) {
         const indeksKomorki = dzien + 1;
         const komorka = komorki.eq(indeksKomorki);
@@ -84,7 +84,7 @@ async function pobierzPlanSali(sala) {
   }
 }
 
-// Funkcja do załadowania wszystkich danych
+// Załadowanie wszystkich danych
 async function zaladujWszystkieDane() {
   console.log('Ładowanie danych ze strony szkoły...');
   const startTime = Date.now();
@@ -94,7 +94,7 @@ async function zaladujWszystkieDane() {
   
   const daneSal = [];
   
-  // Pobieramy plany wszystkich sal równolegle (szybciej)
+  // Pobranie planów wszystkich sal  
   const promises = sale.map(sala => pobierzPlanSali(sala));
   const wyniki = await Promise.all(promises);
   
@@ -109,7 +109,7 @@ async function zaladujWszystkieDane() {
   console.log(`✓ Załadowano dane ${daneSal.length} sal w ${czasLadowania}s`);
 }
 
-// Funkcja do znajdowania wolnych sal z cache
+// Znajdowanie wolnych sal z cache
 function znajdzWolneSale(dzien, lekcja) {
   if (!cacheZajec) return [];
   
@@ -125,7 +125,7 @@ function znajdzWolneSale(dzien, lekcja) {
   return wolneSale;
 }
 
-// Endpoint do pobierania wolnych sal
+// Pobieranie wolnych sal
 app.get('/wolne-sale', async (req, res) => {
   const { dzien, lekcja } = req.query;
   
@@ -133,7 +133,7 @@ app.get('/wolne-sale', async (req, res) => {
     return res.status(400).json({ error: 'Podaj dzień i numer lekcji' });
   }
   
-  // Jeśli nie ma cache, załaduj dane
+  // Jeśli nie ma cache ładuj dane
   if (!cacheZajec) {
     await zaladujWszystkieDane();
   }
@@ -142,7 +142,7 @@ app.get('/wolne-sale', async (req, res) => {
   res.json({ wolneSale, lastUpdate });
 });
 
-// Endpoint do odświeżenia danych
+// Odświeżenie danych
 app.get('/odswiez', async (req, res) => {
   await zaladujWszystkieDane();
   res.json({ success: true, lastUpdate });
@@ -151,6 +151,6 @@ app.get('/odswiez', async (req, res) => {
 const PORT = 3000;
 app.listen(PORT, async () => {
   console.log(`Serwer działa na http://localhost:${PORT}`);
-  // Automatycznie załaduj dane przy starcie
+  // Automatyczne załadowanie danych
   await zaladujWszystkieDane();
 });
